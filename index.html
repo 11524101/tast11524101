@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>線上訂購商店</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f8f9fa;
+      color: #333;
+    }
+    h1 { text-align: center; color: #2c3e50; }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+      margin-bottom: 25px;
+    }
+    /* 商品卡片區域網格佈局 */
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 20px;
+      margin-top: 15px;
+    }
+    .product-card {
+      border: 1px solid #e1e8ed;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background: #fff;
+      transition: transform 0.2s;
+    }
+    .product-card:hover { transform: translateY(-3px); }
+    .product-img {
+      width: 100%;
+      height: 160px;
+      object-fit: cover;
+      background-color: #eee;
+    }
+    .product-info { padding: 12px; }
+    .product-title { font-weight: bold; font-size: 1.1em; margin-bottom: 5px; }
+    .product-desc { font-size: 0.85em; color: #666; margin-bottom: 10px; min-height: 35px; }
+    .product-price { color: #e74c3c; font-weight: bold; font-size: 1.1em; }
+    .qty-control {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+    .qty-control input {
+      width: 60px;
+      padding: 5px;
+      text-align: center;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; }
+    input[type="text"], input[type="tel"] {
+      width: 100%;
+      padding: 10px;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    .total-bar {
+      font-size: 1.3em;
+      font-weight: bold;
+      color: #2c3e50;
+      text-align: right;
+      padding: 10px 0;
+      border-top: 2px dashed #eee;
+    }
+    button {
+      width: 100%;
+      background-color: #27ae60;
+      color: white;
+      border: none;
+      padding: 14px;
+      font-size: 18px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover { background-color: #219150; }
+    button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+    .loading { text-align: center; color: #7f8c8d; padding: 20px; }
+  </style>
+</head>
+<body>
+
+  <h1>🛒 線上門市</h1>
+
+  <div class="card">
+    <h2>1. 選擇商品</h2>
+    <div id="product-container" class="loading">正在動態載入商品清單...</div>
+    <div class="total-bar">
+      總金額：$<span id="total-price">0</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. 訂購人資訊</h2>
+    <form id="order-form">
+      <div class="form-group">
+        <label for="cust-name">姓名 *</label>
+        <input type="text" id="cust-name" required placeholder="請輸入姓名">
+      </div>
+      <div class="form-group">
+        <label for="cust-phone">聯絡電話 *</label>
+        <input type="tel" id="cust-phone" required placeholder="請輸入電話">
+      </div>
+      <button type="submit" id="submit-btn">確認下單</button>
+    </form>
+  </div>
+
+  <script>
+    let currentProducts = [];
+
+    // 從 Google Sheets 後端載入商品
+    function loadProducts() {
+      google.script.run
+        .withSuccessHandler(renderProducts)
+        .withFailureHandler(err => {
+          document.getElementById('product-container').innerHTML = "載入商品失敗，請重新整理頁面。";
+        })
+        .getProducts();
+    }
+
+    // 將商品渲染至畫面
+    function renderProducts(products) {
+      currentProducts = products;
+      const container = document.getElementById('product-container');
+      
+      if (products.length === 0) {
+        container.innerHTML = "目前暫無上架商品。";
+        return;
+      }
+
+      container.className = "product-grid";
+      container.innerHTML = "";
+
+      products.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'product-card';
+        card.innerHTML = `
+          <img src="${p.imageUrl}" class="product-img" alt="${p.name}" onerror="this.src='https://via.placeholder.com/150?text=No+Image'">
+          <div class="product-info">
+            <div class="product-title">${p.name}</div>
+            <div class="product-desc">${p.description || ''}</div>
+            <div class="product-price">$${p.price}</div>
+            <div class="qty-control">
+              <label>數量：</label>
+              <input type="number" class="qty-input" min="0" value="0" data-id="${p.id}" onchange="calculateTotal()">
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // 計算總金額
+    function calculateTotal() {
+      let total = 0;
+      const qtyInputs = document.querySelectorAll('.qty-input');
+      
+      qtyInputs.forEach(input => {
+        const qty = parseInt(input.value) || 0;
+        const id = input.getAttribute('data-id');
+        const product = currentProducts.find(p => p.id === id);
+        if (product && qty > 0) {
+          total += qty * product.price;
+        }
+      });
+
+      document.getElementById('total-price').innerText = total;
+      return total;
+    }
+
+    // 處理下單
+    document.getElementById('order-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+
+      const totalAmount = calculateTotal();
+      if (totalAmount <= 0) {
+        alert("請至少選擇一項商品的數量！");
+        return;
+      }
+
+      const selectedItems = [];
+      document.querySelectorAll('.qty-input').forEach(input => {
+        const qty = parseInt(input.value) || 0;
+        const id = input.getAttribute('data-id');
+        const product = currentProducts.find(p => p.id === id);
+        if (product && qty > 0) {
+          selectedItems.push({ name: product.name, qty: qty });
+        }
+      });
+
+      const orderData = {
+        name: document.getElementById('cust-name').value,
+        phone: document.getElementById('cust-phone').value,
+        items: selectedItems,
+        totalAmount: totalAmount
+      };
+
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      btn.innerText = "訂單處理中...";
+
+      google.script.run
+        .withSuccessHandler(res => {
+          alert(res.message);
+          document.getElementById('order-form').reset();
+          document.querySelectorAll('.qty-input').forEach(i => i.value = 0);
+          calculateTotal();
+          btn.disabled = false;
+          btn.innerText = "確認下單";
+        })
+        .processOrder(orderData);
+    });
+
+    window.onload = loadProducts;
+  </script>
+</body>
+</html>
